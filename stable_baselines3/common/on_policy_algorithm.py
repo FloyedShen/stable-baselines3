@@ -1,6 +1,6 @@
 import sys
 import time
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar, Union
 
 import gym
 import numpy as np
@@ -13,6 +13,8 @@ from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 from stable_baselines3.common.utils import obs_as_tensor, safe_mean
 from stable_baselines3.common.vec_env import VecEnv
+
+SelfOnPolicyAlgorithm = TypeVar("SelfOnPolicyAlgorithm", bound="OnPolicyAlgorithm")
 
 
 class OnPolicyAlgorithm(BaseAlgorithm):
@@ -36,12 +38,11 @@ class OnPolicyAlgorithm(BaseAlgorithm):
     :param sde_sample_freq: Sample a new noise matrix every n steps when using gSDE
         Default: -1 (only sample at the beginning of the rollout)
     :param tensorboard_log: the log location for tensorboard (if None, no logging)
-    :param create_eval_env: Whether to create a second environment that will be
-        used for evaluating the agent periodically. (Only available when passing string for the environment)
     :param monitor_wrapper: When creating an environment, whether to wrap it
         or not in a Monitor wrapper.
     :param policy_kwargs: additional arguments to be passed to the policy on creation
-    :param verbose: the verbosity level: 0 no output, 1 info, 2 debug
+    :param verbose: Verbosity level: 0 for no output, 1 for info messages (such as device or wrappers used), 2 for
+        debug messages
     :param seed: Seed for the pseudo random generators
     :param device: Device (cpu, cuda, ...) on which the code should be run.
         Setting it to auto, the code will be run on the GPU if possible.
@@ -63,7 +64,6 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         use_sde: bool,
         sde_sample_freq: int,
         tensorboard_log: Optional[str] = None,
-        create_eval_env: bool = False,
         monitor_wrapper: bool = True,
         policy_kwargs: Optional[Dict[str, Any]] = None,
         verbose: int = 0,
@@ -82,7 +82,6 @@ class OnPolicyAlgorithm(BaseAlgorithm):
             device=device,
             use_sde=use_sde,
             sde_sample_freq=sde_sample_freq,
-            create_eval_env=create_eval_env,
             support_multi_env=True,
             seed=seed,
             tensorboard_log=tensorboard_log,
@@ -140,7 +139,7 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         :param callback: Callback that will be called at each step
             (and at the beginning and end of the rollout)
         :param rollout_buffer: Buffer to fill with rollouts
-        :param n_steps: Number of experiences to collect per environment
+        :param n_rollout_steps: Number of experiences to collect per environment
         :return: True if function returned with at least `n_rollout_steps`
             collected, False if callback terminated rollout prematurely.
         """
@@ -224,21 +223,22 @@ class OnPolicyAlgorithm(BaseAlgorithm):
         raise NotImplementedError
 
     def learn(
-        self,
+        self: SelfOnPolicyAlgorithm,
         total_timesteps: int,
         callback: MaybeCallback = None,
         log_interval: int = 1,
-        eval_env: Optional[GymEnv] = None,
-        eval_freq: int = -1,
-        n_eval_episodes: int = 5,
         tb_log_name: str = "OnPolicyAlgorithm",
-        eval_log_path: Optional[str] = None,
         reset_num_timesteps: bool = True,
-    ) -> "OnPolicyAlgorithm":
+        progress_bar: bool = False,
+    ) -> SelfOnPolicyAlgorithm:
         iteration = 0
 
         total_timesteps, callback = self._setup_learn(
-            total_timesteps, eval_env, callback, eval_freq, n_eval_episodes, eval_log_path, reset_num_timesteps, tb_log_name
+            total_timesteps,
+            callback,
+            reset_num_timesteps,
+            tb_log_name,
+            progress_bar,
         )
 
         callback.on_training_start(locals(), globals())
