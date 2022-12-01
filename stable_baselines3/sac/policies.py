@@ -3,7 +3,15 @@ from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import gym
 import torch as th
+import torch.nn
 from torch import nn
+
+from functools import partial
+from braincog.base.node.node import LIFNode, ReLUNode
+from braincog.model_zoo.base_module import BaseModule
+from braincog.model_zoo.darts.model import MlpCell
+from braincog.model_zoo.darts.genotypes import mlp1, mlp2
+from einops import rearrange
 
 from stable_baselines3.common.distributions import SquashedDiagGaussianDistribution, StateDependentNoiseDistribution
 from stable_baselines3.common.policies import BasePolicy, ContinuousCritic
@@ -21,6 +29,50 @@ from stable_baselines3.common.type_aliases import Schedule
 # CAP the standard deviation of the actor
 LOG_STD_MAX = 2
 LOG_STD_MIN = -20
+
+
+class SnnActor(BaseModule):
+    def __init__(self,
+                 input_dim: int,
+                 output_dim: int,
+                 net_arch: List[int],
+                 step: int,
+                 encode_type: str = 'direct',
+                 activation_fn: Type[nn.Module] = LIFNode,
+                 squash_output: bool = False,
+                 *args,
+                 **kwargs):
+        super().__init__(step, encode_type, layer_by_layer=True, *args, **kwargs)
+        self.act_fun = partial(activation_fn, step=step, layer_by_layer=self.layer_by_layer, **kwargs)
+
+        if len(net_arch) > 0:
+            modules = [nn.Linear(input_dim, net_arch[0]), self.act_fun()]
+        else:
+            modules = []
+
+        for idx in range(len(net_arch) - 1):
+            modules.append(nn.Linear(net_arch[idx], net_arch[idx + 1]))
+            modules.append(self.act_fun())
+
+        if output_dim > 0:
+            last_layer_dim = net_arch[-1] if len(net_arch) > 0 else input_dim
+            modules.append(nn.Linear(last_layer_dim, output_dim))
+        if squash_output:
+            modules.append(nn.Tanh())
+
+        self.mlp = torch.nn.Sequential(*modules)
+
+    def forward(self, inputs):
+        inputs = self.encoder(inputs)
+        self.reset()
+
+        if self.layer_by_layer:
+            x = self.mlp(inputs)
+            x = rearrange(x, '(t b) c -> t b c', t=self.step).mean(0)
+        else:
+            raise NotImplementedError
+
+        return x
 
 
 class Actor(BasePolicy):
@@ -89,8 +141,20 @@ class Actor(BasePolicy):
             warnings.warn("sde_net_arch is deprecated and will be removed in SB3 v2.4.0.", DeprecationWarning)
 
         action_dim = get_action_dim(self.action_space)
+
         latent_pi_net = create_mlp(features_dim, -1, net_arch, activation_fn)
         self.latent_pi = nn.Sequential(*latent_pi_net)
+
+        # self.latent_pi = SnnActor(input_dim=features_dim, output_dim=-1, net_arch=net_arch, step=10)
+        # self.latent_pi = MlpCell(
+        #     genotype=mlp1,
+        #     C=net_arch[0],
+        #     input_dim=features_dim,
+        #     output_dim=-1,
+        #     step=10,
+        #     activation_fn=LIFNode,
+        # )
+
         last_layer_dim = net_arch[-1] if len(net_arch) > 0 else features_dim
 
         if self.use_sde:

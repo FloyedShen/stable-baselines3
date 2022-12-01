@@ -5,6 +5,13 @@ import gym
 import torch as th
 from torch import nn
 
+from functools import partial
+from braincog.base.node.node import LIFNode, ReLUNode
+from braincog.model_zoo.base_module import BaseModule
+from braincog.model_zoo.darts.model import MlpCell
+from braincog.model_zoo.darts.genotypes import mlp1, mlp2
+from einops import rearrange
+
 from stable_baselines3.common.preprocessing import get_flattened_obs_dim, is_image_space
 from stable_baselines3.common.type_aliases import TensorDict
 from stable_baselines3.common.utils import get_device
@@ -218,7 +225,16 @@ class MlpExtractor(nn.Module):
         # Create networks
         # If the list of layers is empty, the network will just act as an Identity module
         self.shared_net = nn.Sequential(*shared_net).to(device)
+
         self.policy_net = nn.Sequential(*policy_net).to(device)
+        # self.policy_net = MlpCell(
+        #     genotype=mlp1,
+        #     C=policy_only_layers[0],
+        #     input_dim=last_layer_dim_shared,
+        #     output_dim=-1,
+        #     step=10,
+        #     activation_fn=LIFNode,
+        # )
         self.value_net = nn.Sequential(*value_net).to(device)
 
     def forward(self, features: th.Tensor) -> Tuple[th.Tensor, th.Tensor]:

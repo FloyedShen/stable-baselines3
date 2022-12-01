@@ -4,6 +4,13 @@ import gym
 import torch as th
 from torch import nn
 
+from functools import partial
+from braincog.base.node.node import LIFNode, ReLUNode
+from braincog.model_zoo.base_module import BaseModule
+from braincog.model_zoo.darts.model import MlpCell
+from braincog.model_zoo.darts.genotypes import mlp1, mlp2
+from einops import rearrange
+
 from stable_baselines3.common.policies import BasePolicy, ContinuousCritic
 from stable_baselines3.common.preprocessing import get_action_dim
 from stable_baselines3.common.torch_layers import (
@@ -58,6 +65,14 @@ class Actor(BasePolicy):
         actor_net = create_mlp(features_dim, action_dim, net_arch, activation_fn, squash_output=True)
         # Deterministic action
         self.mu = nn.Sequential(*actor_net)
+        # self.mu = MlpCell(
+        #     genotype=mlp1,
+        #     C=net_arch[0],
+        #     input_dim=features_dim,
+        #     output_dim=action_dim,
+        #     step=10,
+        #     activation_fn=LIFNode,
+        # )
 
     def _get_constructor_parameters(self) -> Dict[str, Any]:
         data = super()._get_constructor_parameters()
